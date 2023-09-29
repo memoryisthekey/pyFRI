@@ -13,6 +13,8 @@ from pyFRI.tools.filters import ExponentialStateFilter
 from admittance import AdmittanceController
 
 import numpy as np
+#from paho.mqtt import client as mqtt_client
+
 
 if fri.FRI_VERSION_MAJOR == 1:
     POSITION = fri.EClientCommandMode.POSITION
@@ -67,6 +69,7 @@ class HandGuideClient(fri.LBRClient):
 
         # Filter wrench
         wf = self.wrench_filter.filter(wr)
+        #print("Wrench: ", wf)
 
         # Compute goal using admittance controller
         self.q = self.controller(self.q, wf, dt)
@@ -80,7 +83,7 @@ def get_arguments():
     parser.add_argument(
         "--hostname",
         dest="hostname",
-        default=None,
+        default="192.170.10.2",
         help="The hostname used to communicate with the KUKA Sunrise Controller.",
     )
     parser.add_argument(
@@ -94,8 +97,9 @@ def get_arguments():
         "--lbr-ver",
         dest="lbr_ver",
         type=int,
-        choices=[7, 14],
-        required=True,
+        default=7,
+        #choices=[7, 14],
+        #required=True,
         help="The KUKA LBR Med version number.",
     )
 

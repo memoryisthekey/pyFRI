@@ -32,7 +32,7 @@ class JointStateEstimator:
         # Set class attributes/variables
         self._client = client
         self._first_update = True
-        self._q = deque([], maxlen=self.n_window)
+        self._q = deque([0], maxlen=self.n_window) #put zero in deque[0]
         self._dq = deque([], maxlen=self.n_window - 1)
         self._ddq = deque([], maxlen=self.n_window - 2)
 
@@ -58,7 +58,7 @@ class JointStateEstimator:
         # Retrieve state
         dt = self._client.robotState().getSampleTime()
         q = self._client.robotState().getMeasuredJointPosition().flatten().tolist()
-
+        #print("q: ", q)
         # Update window
         self._q.append(q)
         if self._first_update:

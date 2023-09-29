@@ -134,7 +134,7 @@ def get_arguments():
     parser.add_argument(
         "--hostname",
         dest="hostname",
-        default=None,
+        default="192.170.10.2",
         help="The hostname used to communicate with the KUKA Sunrise Controller.",
     )
     parser.add_argument(
@@ -148,8 +148,9 @@ def get_arguments():
         "--lbr-ver",
         dest="lbr_ver",
         type=int,
-        choices=[7, 14],
-        required=True,
+        default=7,
+        #choices=[7, 14],
+        #required=True,
         help="The KUKA LBR Med version number.",
     )
 

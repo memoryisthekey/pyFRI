@@ -1,4 +1,6 @@
 import sys
+import os
+import psutil
 import math
 import argparse
 import pyFRI as fri
@@ -58,7 +60,7 @@ class HandGuideClient(fri.LBRClient):
         measured_joints = self.robotState().getMeasuredJointPosition()
         #p = (C.c_double * 7).from_address(int(measured_joints))
         #list(p)
-        print(measured_joints)
+        #print(measured_joints)
         self.joints = np.array(measured_joints)
         return 
 
@@ -137,7 +139,7 @@ class HandGuideClient(fri.LBRClient):
         self.adm_controller.set_desired_frame(x_desired, quaternion.from_float_array([quat.s, quat.v[0], quat.v[1], quat.v[2]]))
         #????????????????????????? This is for testing purposes ?????????????????????????
 
-        print("x_desired", x_desired)
+        #print("x_desired", x_desired)
         # Step controller
         self.adm_controller.step()
 
@@ -221,6 +223,22 @@ def get_arguments():
 
 def main():
     print("Running FRI Version:", fri.FRI_VERSION)
+
+    # Set application real-time priority
+    os_used = sys.platform
+    process = psutil.Process(os.getpid())
+
+    if os_used == "win32":  # Windows (either 32-bit or 64-bit)
+        process.nice(psutil.REALTIME_PRIORITY_CLASS)
+    elif os_used == "linux":  # linux
+        rt_app_priority = 80
+    param = os.sched_param(rt_app_priority)
+    try:
+        os.sched_setscheduler(0, os.SCHED_FIFO, param)
+    except OSError:
+        print("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
+    else:
+        print("Process real-time priority set to: %u" % rt_app_priority)
 
     args = get_arguments()
     client = HandGuideClient(args.lbr_ver)

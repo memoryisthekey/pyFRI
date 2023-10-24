@@ -8,6 +8,7 @@ from pyFRI.tools.state_estimators import (
     FRIExternalTorqueEstimator,
     WrenchEstimatorTaskOffset,
     TaskSpaceStateEstimator,
+    WrenchEstimatorJointOffset,
 )
 from pyFRI.tools.filters import ExponentialStateFilter
 import ctypes as C
@@ -22,7 +23,7 @@ import quaternion
 import time
 import copy
 from robot import load_kuka_iiwa7
-
+import logging
 
 if fri.FRI_VERSION_MAJOR == 1:
     POSITION = fri.EClientCommandMode.POSITION
@@ -34,6 +35,9 @@ def get_circle_target(pose, timestep, radius=0.1, freq=0.05):
     circ_target[0] = pose[0] + radius * np.cos((2 * np.pi * freq * timestep))
     circ_target[1] = pose[1] + radius * np.sin((2 * np.pi * freq * timestep))
     return circ_target
+
+
+logging.basicConfig(filename='logs/admittance_with_orientation.log', filemode='w', format='%(message)s')
 
 class HandGuideClient(fri.LBRClient):
     def __init__(self, lbr_ver):
@@ -75,19 +79,23 @@ class HandGuideClient(fri.LBRClient):
         self.joints = np.array(measured_joints)
         return 
 
-    def set_joints(self, goal_joints):
-        '''Encodes joints positions from np.array to fri.doubleArray to send to FRI'''
-        #values = fri.doubleArray(7)
-        
-        #for i in range(7):
-        values = goal_joints
-        return values
-    
     ######## Kinematics and Dynamics  ################
     
     def fw_kinematics(self): 
-        self.position = self.task_space_estimator.get_transform()
-        print("Position: ", self.position)
+        self.homogenous = self.task_space_estimator.get_transform()
+        self.x = self.homogenous[0][3]
+        self.y = self.homogenous[1][3]
+        self.z = self.homogenous[2][3]
+
+        self.R = self.homogenous[:3, :3]
+        #print("===============")
+#
+        #print("Position x: ", self.x)
+        #print("Position y: ", self.y)
+        #print("Position z: ", self.z)
+#
+        #print("===============")
+        #print("Rotation: ", self.R)
         return
     
     def inv_kinematics(self, goal_pos, quat_goal):
@@ -104,10 +112,12 @@ class HandGuideClient(fri.LBRClient):
         return goal_joints
     
     def get_ft(self):
-        if not self.wrench_estimator.ready():
-            self.wrench_estimator.update()
+        #if not self.wrench_estimator.ready():
+        self.wrench_estimator.update()
         wr = self.wrench_estimator.get_wrench()
         self.wf = self.wrench_filter.filter(wr)
+
+        logging.warning('Force_Torques: %s', self.wf)
         #print("Force_Torque: ", self.wf)
         return
 
@@ -115,27 +125,33 @@ class HandGuideClient(fri.LBRClient):
 
     def step_controller(self):
         # the input position and orientation is given as tip in base
-        #self.adm_controller.pos_input = [self.x, self.y, self.z]
+        self.quat_current = UnitQuaternion(self.R) #convert to quaternion
+        self.adm_controller.pos_input = [self.x, self.y, self.z]
+        logging.warning("Current pose: %s %s", [self.x, self.y, self.z], self.quat_current)
         ##print("Controller Input", self.adm_controller.pos_input)
-        #self.adm_controller.rot_input = quaternion.from_float_array([self.quat_w, self.quat_x,self.quat_y, self.quat_z])        
-        #self.adm_controller.ft_input = np.hstack([self.force_torque[0], self.force_torque[1], self.force_torque[2], 0, 0 ,0])
+        self.adm_controller.rot_input = quaternion.from_float_array([self.quat_current.s, self.quat_current.v[0], self.quat_current.v[1], self.quat_current.v[2]])        
+        self.adm_controller.ft_input = np.hstack([self.wf[0], self.wf[1], self.wf[2],  -self.wf[3],  self.wf[4] , -self.wf[5]])
        #
         ##????????????????????????? This is for testing purposes ?????????????????????????
-        #so = SO3(self.Tep) # convert from SE3 to S03 
-        #quat = UnitQuaternion(so) #convert to quaternion
+        so = SO3(self.Tep) # convert from SE3 to S03 
+        quat = UnitQuaternion(so) #convert to quaternion
+        x_desired =  self.Tep.t #[cartesian_pos[0], cartesian_pos[1], cartesian_pos[2]] 
+
         #x_desired =  get_circle_target(self.Tep.t, self.counter)#[cartesian_pos[0], cartesian_pos[1], cartesian_pos[2]] 
-        #self.adm_controller.set_desired_frame(x_desired, quaternion.from_float_array([quat.s, quat.v[0], quat.v[1], quat.v[2]]))
+        self.adm_controller.set_desired_frame(x_desired, quaternion.from_float_array([quat.s, quat.v[0], quat.v[1], quat.v[2]]))
         ##????????????????????????? This is for testing purposes ?????????????????????????
 #
         ##print("x_desired", x_desired)
         ## Step controller
-        #self.adm_controller.step()
+        self.adm_controller.step()
 #
         ### output from controller
-        #output = self.adm_controller.get_output()
-        #output_position = output[0:3]
-        #output_quat = output[3:7]
-        return #(output_position, output_quat)
+        output = self.adm_controller.get_output()
+        output_position = output[0:3]
+        output_quat = output[3:7]
+        logging.warning('Controller Output: %s', output)
+
+        return (output_position, output_quat)
 
     def command_position(self):
         self.robotCommand().setJointPosition(self.q.astype(np.float32))
@@ -164,15 +180,17 @@ class HandGuideClient(fri.LBRClient):
         self.fw_kinematics()
         self.get_ft()
  
-        #controller_out = self.step_controller()    
+        controller_out = self.step_controller()    
         self.counter = self.counter + 0.01
-    
-        # Inverse Kinematics 
-        #joint_goal = self.inv_kinematics(controller_out[0], controller_out[1])
 
-        #self.robotCommand().setJointPosition(values) 
-        self.q = self.robotState().getIpoJointPosition()
-        self.command_position()
+
+        #print(controller_out[0])
+        # Inverse Kinematics 
+        joint_goal = self.inv_kinematics(controller_out[0], controller_out[1])
+        
+        self.robotCommand().setJointPosition(joint_goal) 
+        #self.q = self.robotState().getIpoJointPosition()
+        #self.command_position()
 
 
 def get_arguments():
